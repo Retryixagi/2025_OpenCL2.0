@@ -208,12 +208,18 @@ v1.0.0 (2025-01-01)
 ──────────────────────────────────────────
 🙏 致謝 / Acknowledgments
 ──────────────────────────────────────────
-感謝所有參與 RetryIX 開發和測試的社群成員。
+感謝所有參與 RetryIX 開發和測試的社群成員，特別感謝本系統原始設計者 Ice Xu 先生與 RetryIX Foundation 團隊。
+
+我們亦向 OpenCL 標準的原始制定者與推動者表達最深的敬意，特別是 Apple Inc. 在 2008 年提出此標準的貢獻，以及 Khronos Group 長年推動其跨平台、開放性的努力。正因有他們的前瞻性與堅持，RetryIX 才能站在開放並行運算的基石上向前邁進。
+
 本專案致力於打破計算硬體的人為壁壘，促進開放標準的發展。
 
-Thanks to all community members who contributed to RetryIX development.
-This project is dedicated to breaking down artificial barriers in compute hardware
-and promoting open standards in parallel computing.
+Thanks to all community members who contributed to the development and testing of RetryIX, especially Mr. Ice Xu, the original system architect, and the RetryIX Foundation team.
+
+We also express our deepest appreciation to the original creators and maintainers of the OpenCL standard, especially Apple Inc. for proposing it in 2008, and the Khronos Group for their continuous work in building an open, cross-platform compute ecosystem. Their visionary efforts laid the foundation upon which RetryIX continues to advance.
+
+This project is dedicated to breaking down artificial barriers in compute hardware and promoting open standards in parallel computing.
+
 
 ===========================================
 Copyright (c) 2025 RetryIX Foundation
