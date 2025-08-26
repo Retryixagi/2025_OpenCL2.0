@@ -1,0 +1,276 @@
+Windows Registry Editor Version 5.00
+
+; RetryIX Universal Compute Abstraction Layer
+; Complete Registry Configuration
+; Version 2.0.0
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX]
+"ProductName"="RetryIX Universal Compute Platform"
+"Version"="2.0.0"
+"Build"="20250826"
+"Vendor"="RetryIX Foundation"
+"InstallDate"="2025-08-26"
+"LicenseType"="OpenSource"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Core]
+"InstallPath"="C:\\Program Files\\RetryIX"
+"BinPath"="C:\\Program Files\\RetryIX\\bin"
+"LibPath"="C:\\Program Files\\RetryIX\\lib"
+"ConfigPath"="C:\\Program Files\\RetryIX\\config"
+"LogPath"="C:\\Program Files\\RetryIX\\logs"
+"TempPath"="C:\\Temp\\RetryIX"
+"CachePath"="C:\\ProgramData\\RetryIX\\cache"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\MemoryRAID]
+"InstallPath"="C:\\Program Files\\RetryIX\\MemoryRAID"
+"DriverVersion"="2.0.0"
+"EnableSVM"=dword:00000001
+"EnableAtomic"=dword:00000001
+"EnableZeroCopy"=dword:00000001
+"EnableDistributed"=dword:00000000
+; Use MiB units to keep DWORD. 8176 MiB = 0x00001FF0
+"MaxSVMSizeMiB"=dword:00001ff0
+"MemoryAlignment"=dword:00000100
+"LastVerifiedDevice"="gfx1010:xnack-"
+"ValidationLevel"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\MemoryRAID\v2.0.0]
+"InstallPath"="C:\\Program Files\\RetryIX\\MemoryRAID\\v2.0.0"
+"DllPath"="C:\\Program Files\\RetryIX\\MemoryRAID\\v2.0.0\\retryix.dll"
+"ConfigFile"="C:\\Program Files\\RetryIX\\MemoryRAID\\v2.0.0\\config.xml"
+"BackwardCompatible"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\KernelEngine]
+"EnableUniversalKernels"=dword:00000001
+"EnableKernelCache"=dword:00000001
+"EnableAutoOptimization"=dword:00000001
+"CompileStrategy"=dword:00000000
+"CacheSize"=dword:00000100
+"MaxKernelVariants"=dword:00000004
+"OptimizationLevel"=dword:00000002
+"EnableProfiling"=dword:00000001
+"KernelTimeout"=dword:0000ea60
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\DeviceManager]
+"AutoDetectDevices"=dword:00000001
+"EnableVendorBypass"=dword:00000001
+"ForceOpenCL20"=dword:00000000
+"FallbackToCPU"=dword:00000001
+"DeviceBlacklist"=""
+"PreferredVendor"=""
+"MaxDevices"=dword:00000008
+"RefreshInterval"=dword:00001388
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\DeviceManager\AMD]
+"EnableSVMBypass"=dword:00000001
+"EnableAtomicBypass"=dword:00000001
+"ForceExtensions"="cl_khr_global_int32_base_atomics,cl_khr_global_int32_extended_atomics"
+"DriverWorkarounds"=dword:00000001
+"UseNativeAtomic"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\DeviceManager\NVIDIA]
+"EnableCUDAInterop"=dword:00000000
+"BypassDriverRestrictions"=dword:00000001
+"ForceOpenCLPath"=dword:00000001
+"DisableCUDAFallback"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\DeviceManager\Intel]
+"EnableiGPUCompute"=dword:00000001
+"EnableCPUFallback"=dword:00000001
+"OptimizeForIntegrated"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Performance]
+"EnableBenchmarking"=dword:00000001
+"AutoTuning"=dword:00000001
+"CollectMetrics"=dword:00000001
+"MetricsInterval"=dword:00001388
+; Memory limits in MiB to avoid DWORD overflow. 2048 MiB = 0x00000800
+"MaxMemoryUsageMiB"=dword:00000800
+"ThreadPoolSize"=dword:00000008
+"EnableLowLatency"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Security]
+"EnableSandbox"=dword:00000001
+"KernelValidation"=dword:00000002
+"AllowUnsignedKernels"=dword:00000000
+"MemoryProtection"=dword:00000001
+"AuditMode"=dword:00000000
+"TrustedPublishers"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Logging]
+"EnableLogging"=dword:00000001
+"LogLevel"=dword:00000002
+"LogToFile"=dword:00000001
+"LogToConsole"=dword:00000001
+"LogToSyslog"=dword:00000000
+"MaxLogSize"=dword:00a00000
+"LogRetentionDays"=dword:0000001e
+"DebugMode"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Applications]
+"DefaultAPI"="RetryIX"
+"EnableLegacySupport"=dword:00000001
+"ApplicationTimeout"=dword:00007530
+"MaxConcurrentApps"=dword:00000010
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Applications\AI]
+"EnableMLOptimizations"=dword:00000001
+"TensorCacheSize"=dword:00000200
+; Model memory pool in MiB. 1024 MiB = 0x00000400
+"ModelMemoryPoolMiB"=dword:00000400
+"EnableDistributedTraining"=dword:00000000
+"FP16Support"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Applications\HFT]
+"EnableLowLatency"=dword:00000001
+"MemoryPinning"=dword:00000001
+"RealTimeScheduling"=dword:00000001
+"MaxLatencyUs"=dword:000003e8
+"EnableAtomicOrderbook"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Applications\Scientific]
+"EnableDoubleSupport"=dword:00000001
+"LargeMemorySupport"=dword:00000001
+"EnableMPI"=dword:00000000
+"CheckPointingEnabled"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Network]
+"EnableDistributedCompute"=dword:00000000
+"ClusterDiscovery"=dword:00000000
+"NodeCommunication"="TCP"
+"DefaultPort"=dword:00001f90
+"EnableEncryption"=dword:00000001
+"HeartbeatInterval"=dword:00001388
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Updates]
+"AutoUpdate"=dword:00000001
+"UpdateChannel"="stable"
+"CheckInterval"=dword:00015180
+"UpdateServer"="updates.retryixagi.com"
+"EnableBeta"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Diagnostics]
+"EnableCrashReporting"=dword:00000001
+"EnableTelemetry"=dword:00000000
+"CollectPerformanceData"=dword:00000001
+"AnonymizeData"=dword:00000001
+"DiagnosticLevel"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\Compatibility]
+"OpenCLVersion"="2.0"
+"CUDACompatMode"=dword:00000000
+"ROCmCompatMode"=dword:00000000
+"oneAPICompatMode"=dword:00000000
+"LegacyAPISupport"=dword:00000001
+
+; User-specific settings (per-user installation)
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX]
+"UserConfigPath"="C:\\Users\\%USERNAME%\\AppData\\Roaming\\RetryIX"
+"EnableUserKernels"=dword:00000001
+"UserCacheSize"=dword:00000100
+"PreferredDevice"=""
+"LastUsedProfile"="default"
+
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX\Profiles]
+
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX\Profiles\default]
+"DisplayName"="Default Profile"
+"DevicePreference"="auto"
+"OptimizationLevel"=dword:00000001
+"EnableProfiling"=dword:00000000
+
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX\Profiles\performance]
+"DisplayName"="High Performance"
+"DevicePreference"="gpu"
+"OptimizationLevel"=dword:00000003
+"EnableProfiling"=dword:00000001
+"MemoryAlignment"=dword:00000100
+
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX\Profiles\compatibility]
+"DisplayName"="Maximum Compatibility"
+"DevicePreference"="cpu"
+"OptimizationLevel"=dword:00000000
+"EnableProfiling"=dword:00000000
+"FallbackMode"=dword:00000001
+
+[HKEY_CURRENT_USER\SOFTWARE\RetryIX\Profiles\developer]
+"DisplayName"="Developer Mode"
+"DevicePreference"="auto"
+"OptimizationLevel"=dword:00000002
+"EnableProfiling"=dword:00000001
+"DebugMode"=dword:00000001
+"EnableKernelDebugging"=dword:00000001
+
+; Service Configuration
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\RetryIXService]
+"DisplayName"="RetryIX Universal Compute Service"
+"Description"="Provides hardware-agnostic compute abstraction layer"
+"ImagePath"="C:\\Program Files\\RetryIX\\bin\\retryix_service.exe"
+"Type"=dword:00000010
+"Start"=dword:00000002
+"ErrorControl"=dword:00000001
+"ObjectName"="LocalSystem"
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\RetryIXService\Parameters]
+"ServiceTimeout"=dword:00007530
+"MaxClients"=dword:00000064
+"LogLevel"=dword:00000002
+"ConfigFile"="C:\\Program Files\\RetryIX\\config\\service.xml"
+
+; Performance Counters
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\_V2Providers\{12345678-1234-1234-1234-123456789abc}]
+"CategoryName"="RetryIX Performance"
+"HelpFile"="C:\\Program Files\\RetryIX\\help\\perfmon.txt"
+
+; File Associations
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.rxk]
+@="RetryIXKernel"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.rxk\OpenWithProgIds]
+"RetryIXKernel"=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\RetryIXKernel]
+@="RetryIX Kernel File"
+"FriendlyTypeName"="RetryIX Kernel"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\RetryIXKernel\shell\open\command]
+@="\"C:\\Program Files\\RetryIX\\bin\\retryix_editor.exe\" \"%1\""
+
+; Uninstall Information
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX]
+"DisplayName"="RetryIX Universal Compute Platform"
+"DisplayVersion"="2.0.0"
+"Publisher"="RetryIX Foundation"
+"InstallLocation"="C:\\Program Files\\RetryIX"
+"InstallSource"="C:\\Temp\\RetryIXSetup\\"
+"UninstallString"="C:\\Program Files\\RetryIX\\uninstall.exe"
+"ModifyPath"="C:\\Program Files\\RetryIX\\setup.exe /modify"
+"DisplayIcon"="C:\\Program Files\\RetryIX\\retryix.ico"
+"HelpLink"="https://docs.retryixagi.com"
+"URLInfoAbout"="https://www.retryixagi.com"
+"URLUpdateInfo"="https://updates.retryixagi.com"
+"EstimatedSize"=dword:00019000
+"NoModify"=dword:00000000
+"NoRepair"=dword:00000000
+
+; Version-specific cleanup for upgrades
+[HKEY_LOCAL_MACHINE\SOFTWARE\RetryIX\VersionHistory]
+"v1.0.0"="2025-01-01"
+"v1.5.0"="2025-03-15"
+"v2.0.0"="2025-08-26"
+"CurrentVersion"="2.0.0"
+"UpgradeRequired"=dword:00000000
+
+[Registry]
+; Windows 卸載程式註冊
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "DisplayName"; ValueData: "RetryIX Universal Compute Platform"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "DisplayVersion"; ValueData: "2.0.0"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "Publisher"; ValueData: "RetryIX Foundation"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "UninstallString"; ValueData: "{uninstallexe}"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "DisplayIcon"; ValueData: "{app}\retryix.ico"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "HelpLink"; ValueData: "https://docs.retryixagi.com"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: string; ValueName: "URLInfoAbout"; ValueData: "https://www.retryixagi.com"
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: dword; ValueName: "EstimatedSize"; ValueData: 25600
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: dword; ValueName: "NoModify"; ValueData: 1
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RetryIX"; ValueType: dword; ValueName: "NoRepair"; ValueData: 1
