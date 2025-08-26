@@ -1,36 +1,43 @@
-// main.c
 #include <stdio.h>
-#include "retryix.h"
+#include <stdlib.h>
+
+// 用 wrapper 的原型（可放進 retryix.h，或在此重宣）
+#ifdef _WIN32
+  #define RIX_API __declspec(dllimport)
+  #define RIX_CDECL __cdecl
+#else
+  #define RIX_API
+  #define RIX_CDECL
+#endif
+
+RIX_API int RIX_CDECL retryix_get_version(int*, int*, int*);
+RIX_API int RIX_CDECL retryix_selftest(void);
+RIX_API int RIX_CDECL retryix_device_count(void);
+RIX_API int RIX_CDECL retryix_enumerate_devices_json(char* buf, unsigned long cap);
 
 int main(void) {
-    printf("🚀 RetryIX Platform Device Inspector Launched\n");
-
-    RetryIXDevice devices[RETRYIX_MAX_DEVICES];
-    int count = 0;
-
-    int status = retryixGetDeviceList(devices, RETRYIX_MAX_DEVICES, &count);
-    if (status != RETRYIX_SUCCESS) {
-        printf("❌ Failed to enumerate devices (error %d)\n", status);
-        return 1;
+    int maj=0,min=0,pat=0;
+    if (retryix_get_version(&maj,&min,&pat)==0) {
+        printf("RetryIX v%d.%d.%d\n", maj,min,pat);
     }
 
-    printf("✅ Found %d device(s)\n", count);
-    for (int i = 0; i < count; i++) {
-        printf("[%d] %s\n", i, devices[i].name);
-        printf("    Type: %lu\n", (unsigned long)devices[i].type);
-        printf("    Global Mem: %llu MB\n",
-               (unsigned long long)devices[i].global_mem_size / (1024ULL * 1024ULL));
-        printf("    OpenCL: %s\n", devices[i].opencl_version);
-        printf("    SVM Caps: %llu\n", (unsigned long long)devices[i].svm_capabilities);
-        printf("    Extensions: %s\n\n", devices[i].extensions);
+    if (retryix_selftest()==0) {
+        printf("Selftest: OK\n");
     }
 
-    status = retryix_export_all_devices_json("device_report.json");
-    if (status == RETRYIX_SUCCESS) {
-        printf("📦 Exported device report to device_report.json\n");
-    } else {
-        printf("❌ Failed to export device report (error %d)\n", status);
-    }
+    int n = retryix_device_count();
+    printf("Device count: %d\n", n);
 
+    int need = retryix_enumerate_devices_json(NULL, 0);
+    if (need > 0) {
+        char *buf = (char*)malloc(need+1);
+        if (buf) {
+            int wrote = retryix_enumerate_devices_json(buf, need+1);
+            if (wrote >= 0) {
+                printf("Devices JSON:\n%s\n", buf);
+            }
+            free(buf);
+        }
+    }
     return 0;
 }
