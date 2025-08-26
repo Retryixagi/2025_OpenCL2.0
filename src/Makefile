@@ -2,8 +2,10 @@
 
 
 CC = gcc
-CFLAGS=-std=c11 -O2 -Wall -Wextra -Iinclude -DCL_TARGET_OPENCL_VERSION=200
-LDFLAGS = -lOpenCL
+CFLAGS  := -O2 -Wall -I. \
+           -DCL_TARGET_OPENCL_VERSION=200 \
+           -DCL_USE_DEPRECATED_OPENCL_1_2_APIS
+LDFLAGS := -lOpenCL
 TARGET = test_platform.exe
 RETRYIX_HOST = retryix_host.exe
 RETRYIX_DLL = retryix.dll
@@ -71,11 +73,24 @@ OBJS    := $(SRCS:.c=.o)
 all: dll
 
 dll: $(OBJS)
-	$(CC) $(CFLAGS) -o $(DLL) $(OBJS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $(DLL) $(OBJS) $(LDFLAGS) $(DLL_SRCS:.c=.o)
 
-# 一般 .c → .o
+# Host exe source (只 main.c)
+HOST_SRCS := main.c
+HOST_OBJS := $(HOST_SRCS:.c=.o)
+
+.PHONY: all dll host clean
+
+all: dll host
+
+dll: $(DLL_OBJS)
+	$(CC) -shared -o $(DLL) $(DLL_OBJS) $(LDFLAGS) -Wl,--out-implib,$(IMPLIB)
+
+host: dll $(HOST_OBJS)
+	$(CC) -o $(HOST) $(HOST_OBJS) $(IMPLIB) $(LDFLAGS)
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	$(RM) $(OBJS) $(DLL) $(IMPLIB)
+	rm -f $(DLL_OBJS) $(HOST_OBJS) $(DLL) $(IMPLIB) $(HOST)
