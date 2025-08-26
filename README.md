@@ -208,7 +208,10 @@ Licensed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 ## 🙏 Acknowledgments / 致謝
 
 Thanks to all community contributors — especially **Ice Xu** and the **RetryIX Foundation** team.
-Special appreciation to the creators and maintainers of **OpenCL** (Apple, 2008; **Khronos Group** ongoing) for building an open, cross‑platform compute ecosystem.
+Special appreciation to the creators and maintainers of **OpenCL** 
+Apple, 2008;
+**Khronos Group** ongoing
+for building an open, cross‑platform compute ecosystem.
 
 ---
 
