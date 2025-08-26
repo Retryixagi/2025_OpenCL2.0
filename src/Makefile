@@ -48,6 +48,7 @@ RM      := rm -f
 CFLAGS  := -O2 -Wall -I. \
            -DCL_TARGET_OPENCL_VERSION=200 \
            -DCL_USE_DEPRECATED_OPENCL_1_2_APIS
+           
 
 # 連結旗標
 LDFLAGS := -shared -lOpenCL -Wl,--out-implib,libretryix.a
@@ -72,6 +73,8 @@ OBJS    := $(SRCS:.c=.o)
 
 all: dll
 
+CFLAGS += -ffunction-sections -fdata-sections
+
 dll: $(OBJS)
 	$(CC) $(CFLAGS) -o $(DLL) $(OBJS) $(LDFLAGS) $(DLL_SRCS:.c=.o)
 
@@ -83,14 +86,19 @@ HOST_OBJS := $(HOST_SRCS:.c=.o)
 
 all: dll host
 
-dll: $(DLL_OBJS)
-	$(CC) -shared -o $(DLL) $(DLL_OBJS) $(LDFLAGS) -Wl,--out-implib,$(IMPLIB)
+# 連結（DLL 與 EXE 都可加）：
+LDFLAGS += -Wl,--gc-sections
 
+# 產物去除符號（可選，會讓檔案更小）：
+STRIP ?= strip
+post_build_strip:
+	-$(STRIP) retryix.dll 2>/dev/null || true
+	-$(STRIP) retryix_host.exe 2>/dev/null || true
+
+# 在 dll/host 規則後面加一行： make 自動 strip
+dll: $(OBJS)
+	$(CC) $(CFLAGS) -o $(DLL) $(OBJS) $(LDFLAGS) -shared -Wl,--out-implib,$(IMPLIB)
+	$(MAKE) post_build_strip
 host: dll $(HOST_OBJS)
-	$(CC) -o $(HOST) $(HOST_OBJS) $(IMPLIB) $(LDFLAGS)
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-clean:
-	rm -f $(DLL_OBJS) $(HOST_OBJS) $(DLL) $(IMPLIB) $(HOST)
+	$(CC) $(CFLAGS) -o $(HOST) $(HOST_OBJS) $(IMPLIB) $(LDFLAGS)
+	$(MAKE) post_build_strip
