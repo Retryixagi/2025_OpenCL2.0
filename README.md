@@ -187,6 +187,15 @@ Licensed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 ---
 
+##  Branch Overview
+
+| Branch           | Purpose                                           |
+|------------------|---------------------------------------------------|
+| `main`           | Full release with binaries & installer packages   |
+| `source-clean`   | Clean source-only version for code reviews/forks  |
+
+---
+
 ## ⚠️ Important Notes / 重要注意事項
 
 **中文**
