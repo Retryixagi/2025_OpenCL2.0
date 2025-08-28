@@ -1,4 +1,4 @@
-# RetryIX Universal Compute Platform v2.0.0
+# RetryIX Universal Compute Platform v2.0.2
 
 > 通用計算抽象平台（中英文說明） / Universal Compute Abstraction Layer (ZH/EN)
 
