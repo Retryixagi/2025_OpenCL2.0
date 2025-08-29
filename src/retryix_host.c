@@ -1,383 +1,351 @@
+// retryix_host.c
+// Unified RetryIX Host with module registration + host_comm wiring
+// Fixes:
+//  - retryix_send_command(): use in-thread loopback (no queue echo)
+//  - add forward declarations to avoid implicit declaration warnings
+//  - guard CL_TARGET_OPENCL_VERSION to avoid redefinition
+
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 220
+#endif
+
 #include <CL/cl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
-// 跨平台中文顯示支援
+#include "host_comm.h"
+#include "module_descriptor.h"
+
 #ifdef _WIN32
-    #include <windows.h>
-    #include <locale.h>
-    void setup_unicode() {
-        SetConsoleOutputCP(65001);
-        setlocale(LC_ALL, ".UTF8");
-    }
+#define EXPORT __declspec(dllexport)
 #else
-    void setup_unicode() {
-        setlocale(LC_ALL, "");
-    }
+#define EXPORT
 #endif
 
-#define CHECK_CL_ERROR(err, msg) \
-    if (err != CL_SUCCESS) { \
-        fprintf(stderr, "OpenCL Error (%d): %s\n", err, msg); \
-        exit(EXIT_FAILURE); \
-    }
+// ===== Forward Declarations (avoid implicit declaration warnings) =====
+EXPORT int retryix_init_from_source(const char* kernel_source, const char* build_opts);
+EXPORT int retryix_init_from_file(const char* kernel_path, const char* build_opts);
+EXPORT int retryix_init_minimal(void);
+EXPORT cl_kernel retryix_create_kernel(const char* kernel_name);
+EXPORT int retryix_execute_kernel(float* host_data, size_t count);
+EXPORT int retryix_launch_1d(cl_kernel k, cl_mem arg0, size_t global);
+EXPORT int retryix_host_receive_command(const char *input, char *response, size_t response_size);
+EXPORT int retryix_send_command(const char* message, char* response, size_t response_size);
+EXPORT int retryix_shutdown(void);
 
-// 設備能力結構體 - 避免與 Windows API 衝突
-typedef struct {
-    int supports_atomic_32;
-    int supports_atomic_64;
-    int supports_extended_atomics;
-    int opencl_version_major;
-    int opencl_version_minor;
-    int use_opencl2_atomics;
-} OpenCLDeviceCapabilities;
+// ===== Common helpers =====
+#define MAX_KERNELS 64
 
-// 多版本原子操作內核 - 根據硬體能力動態選擇
-const char *kernelSource_OpenCL2 =
-"__kernel void atomic_add_kernel(__global atomic_int *counter) {\n"
-"    atomic_fetch_add_explicit(counter, 1, memory_order_relaxed);\n"
-"}\n"
-"__kernel void atomic_stress_test(__global atomic_int *counter, __global int *results) {\n"
-"    int gid = get_global_id(0);\n"
-"    int old_value = atomic_fetch_add_explicit(counter, 1, memory_order_relaxed);\n"
-"    results[gid] = old_value;\n"
+#define check_error(e, msg) \
+    do { if ((e) != CL_SUCCESS) { \
+        fprintf(stderr, "[RetryIX Host] OpenCL Error %d @ %s\n", (int)(e), (msg)); \
+        return -1; } } while (0)
+
+static cl_platform_id   g_platform = NULL;
+static cl_device_id     g_device   = NULL;
+static cl_context       g_context  = NULL;
+static cl_command_queue g_queue    = NULL;
+static cl_program       g_program  = NULL;
+
+static cl_kernel        g_kernels[MAX_KERNELS] = {0};
+static char             g_kernel_names[MAX_KERNELS][128] = {{0}};
+static int              g_kernel_count = 0;
+
+// ----- optional built-in fallback kernel (name: "test") -----
+// does: data[i] = data[i] + 1.0f
+static const char* kFallbackKernel =
+"__kernel void test(__global float* data){\n"
+"  size_t i = get_global_id(0);\n"
+"  data[i] = data[i] + 1.0f;\n"
 "}\n";
 
-const char *kernelSource_OpenCL1_WithExtensions =
-"#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable\n"
-"#pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable\n"
-"__kernel void atomic_add_kernel(__global int *counter) {\n"
-"    atomic_add(counter, 1);\n"
-"}\n"
-"__kernel void atomic_stress_test(__global int *counter, __global int *results) {\n"
-"    int gid = get_global_id(0);\n"
-"    int old_value = atomic_inc(counter);\n"
-"    results[gid] = old_value;\n"
-"}\n"
-"__kernel void basic_ops_test(__global int *data) {\n"
-"    int gid = get_global_id(0);\n"
-"    if (gid < 4) {\n"
-"        switch(gid) {\n"
-"            case 0: atomic_add(&data[0], 1); break;\n"
-"            case 1: atomic_sub(&data[1], 1); break;\n"
-"            case 2: atomic_max(&data[2], gid); break;\n"
-"            case 3: atomic_min(&data[3], gid + 100); break;\n"
-"        }\n"
-"    }\n"
-"}\n";
+// ====== Simple in-process module registry (local minimal impl) ======
+static RetryIXModuleDescriptor g_self_desc;
+static int g_has_desc = 0;
 
-const char *kernelSource_Basic =
-"__kernel void atomic_add_kernel(__global int *counter) {\n"
-"    // 最基本的原子操作，所有平台都應該支援\n"
-"    atom_add(counter, 1);\n"
-"}\n"
-"__kernel void atomic_stress_test(__global int *counter, __global int *results) {\n"
-"    int gid = get_global_id(0);\n"
-"    int old_value = atom_inc(counter);\n"
-"    results[gid] = old_value;\n"
-"}\n";
-
-const char *kernelSource_Fallback =
-"// 完全回退版本 - 使用本地記憶體模擬\n"
-"__kernel void atomic_add_kernel(__global int *counter) {\n"
-"    __local int local_sum[256];\n"
-"    int lid = get_local_id(0);\n"
-"    int lsize = get_local_size(0);\n"
-"    \n"
-"    local_sum[lid] = 1;\n"
-"    barrier(CLK_LOCAL_MEM_FENCE);\n"
-"    \n"
-"    // 本地歸約\n"
-"    for(int stride = lsize/2; stride > 0; stride /= 2) {\n"
-"        if(lid < stride) {\n"
-"            local_sum[lid] += local_sum[lid + stride];\n"
-"        }\n"
-"        barrier(CLK_LOCAL_MEM_FENCE);\n"
-"    }\n"
-"    \n"
-"    if(lid == 0) {\n"
-"        // 簡單的非原子加法 - 只用於測試\n"
-"        *counter += local_sum[0];\n"
-"    }\n"
-"}\n"
-"__kernel void atomic_stress_test(__global int *counter, __global int *results) {\n"
-"    int gid = get_global_id(0);\n"
-"    results[gid] = gid;  // 簡單填充，用於測試\n"
-"}\n";
-
-OpenCLDeviceCapabilities analyze_device_capabilities(cl_device_id device) {
-    OpenCLDeviceCapabilities caps = {0};
-    char extensions[4096] = {0};
-    char version[256] = {0};
-    
-    clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, sizeof(extensions), extensions, NULL);
-    clGetDeviceInfo(device, CL_DEVICE_VERSION, sizeof(version), version, NULL);
-    
-    // 解析 OpenCL 版本
-    if (sscanf(version, "OpenCL %d.%d", &caps.opencl_version_major, &caps.opencl_version_minor) == 2) {
-        caps.use_opencl2_atomics = (caps.opencl_version_major >= 2);
-    }
-    
-    // 檢查原子操作擴展
-    caps.supports_atomic_32 = (strstr(extensions, "cl_khr_global_int32_base_atomics") != NULL);
-    caps.supports_atomic_64 = (strstr(extensions, "cl_khr_int64_base_atomics") != NULL);
-    caps.supports_extended_atomics = (strstr(extensions, "cl_khr_global_int32_extended_atomics") != NULL);
-    
-    return caps;
+static void gen_uuid_v4(char out[64]) {
+    // 非密碼學用途的簡易 UUIDv4 產生器（demo）
+    unsigned int r[4];
+    srand((unsigned)time(NULL) ^ 0xA5A5A5A5u);
+    for (int i=0;i<4;i++) r[i] = (unsigned)rand();
+    snprintf(out, 64, "%08x-%04x-%04x-%04x-%04x%08x",
+             r[0],
+             (r[1]>>16) & 0xFFFF,
+             ((r[1] & 0x0FFF) | 0x4000),      // version 4
+             ((r[2] & 0x3FFF) | 0x8000),      // variant 10
+             (r[2]>>16) & 0xFFFF,
+             r[3]);
 }
 
-const char* select_best_kernel(OpenCLDeviceCapabilities caps) {
-    if (caps.use_opencl2_atomics && caps.supports_atomic_32) {
-        printf("Strategy Selection: OpenCL 2.0 Atomic Operations\n");
-        return kernelSource_OpenCL2;
-    } else if (caps.supports_atomic_32) {
-        printf("Strategy Selection: OpenCL 1.x + Extensions\n");
-        return kernelSource_OpenCL1_WithExtensions;
+int retryix_register_module(const RetryIXModuleDescriptor* desc) {
+    if (!desc) return -1;
+    g_self_desc = *desc;
+    g_has_desc = 1;
+    fprintf(stdout,
+        "[RetryIX Host] Module registered: name=%s, uuid=%s, profile=%s, blockchain=%d\n",
+        g_self_desc.module_name, g_self_desc.uuid, g_self_desc.semantic_profile,
+        g_self_desc.supports_blockchain);
+    return 0;
+}
+
+int retryix_query_module(char* buffer, size_t max_len) {
+    if (!g_has_desc || !buffer || max_len==0) return -1;
+    snprintf(buffer, max_len,
+        "{\"module_name\":\"%s\",\"uuid\":\"%s\",\"semantic_profile\":%s,\"supports_blockchain\":%d}",
+        g_self_desc.module_name, g_self_desc.uuid,
+        g_self_desc.semantic_profile[0] ? g_self_desc.semantic_profile : "\"\"",
+        g_self_desc.supports_blockchain);
+    return 0;
+}
+
+static int retryix_register_self(void) {
+    RetryIXModuleDescriptor d = {0};
+    snprintf(d.module_name, sizeof(d.module_name), "RetryIX Host");
+    gen_uuid_v4(d.uuid);
+    snprintf(d.semantic_profile, sizeof(d.semantic_profile),
+             "{\"type\":\"AGI\",\"sub\":\"SVM\",\"cap\":\"ZeroCopy\"}");
+    d.supports_blockchain = 0;
+    return retryix_register_module(&d);
+}
+
+// ===== Utility =====
+static char* read_text_file(const char* path, long* out_size) {
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    rewind(fp);
+    char* buf = (char*)malloc(sz + 1);
+    if (!buf) { fclose(fp); return NULL; }
+    size_t n = fread(buf, 1, sz, fp);
+    buf[n] = '\0';
+    fclose(fp);
+    if (out_size) *out_size = (long)n;
+    return buf;
+}
+
+static void print_build_log(cl_program prog, cl_device_id dev, const char* when) {
+    size_t log_size = 0;
+    clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+    if (log_size > 1) {
+        char* log = (char*)malloc(log_size);
+        if (log) {
+            clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+            fprintf(stderr, "[RetryIX Host] Build Log (%s):\n%s\n", when, log);
+            free(log);
+        }
+    }
+}
+
+// ===== Device & Context init =====
+static int pick_first_device(cl_device_type prefer, cl_platform_id* out_pf, cl_device_id* out_dev) {
+    cl_int err;
+    cl_uint np = 0;
+    err = clGetPlatformIDs(0, NULL, &np);
+    if (err != CL_SUCCESS || np == 0) { fprintf(stderr, "No OpenCL platforms.\n"); return -1; }
+    cl_platform_id* pf = (cl_platform_id*)malloc(sizeof(cl_platform_id)*np);
+    if (!pf) return -1;
+    err = clGetPlatformIDs(np, pf, NULL);
+    if (err != CL_SUCCESS) { free(pf); return -1; }
+
+    for (cl_uint i = 0; i < np; ++i) {
+        cl_uint nd = 0;
+        if (clGetDeviceIDs(pf[i], prefer, 0, NULL, &nd) == CL_SUCCESS && nd > 0) {
+            cl_device_id* devs = (cl_device_id*)malloc(sizeof(cl_device_id)*nd);
+            if (!devs) { free(pf); return -1; }
+            err = clGetDeviceIDs(pf[i], prefer, nd, devs, NULL);
+            if (err == CL_SUCCESS && nd > 0) {
+                *out_pf = pf[i]; *out_dev = devs[0];
+                free(devs); free(pf);
+                return 0;
+            }
+            free(devs);
+        }
+        if (clGetDeviceIDs(pf[i], CL_DEVICE_TYPE_ALL, 0, NULL, &nd) == CL_SUCCESS && nd > 0) {
+            cl_device_id* devs = (cl_device_id*)malloc(sizeof(cl_device_id)*nd);
+            if (!devs) { free(pf); return -1; }
+            err = clGetDeviceIDs(pf[i], CL_DEVICE_TYPE_ALL, nd, devs, NULL);
+            if (err == CL_SUCCESS && nd > 0) {
+                *out_pf = pf[i]; *out_dev = devs[0];
+                free(devs); free(pf);
+                return 0;
+            }
+            free(devs);
+        }
+    }
+    free(pf);
+    fprintf(stderr, "No suitable OpenCL device.\n");
+    return -1;
+}
+
+// ===== Public API =====
+EXPORT int retryix_init_minimal(void) {
+    return retryix_init_from_source(kFallbackKernel, "-cl-std=CL1.2");
+}
+
+EXPORT int retryix_init_from_source(const char* kernel_source,
+                                    const char* build_opts /* can be NULL */) {
+    cl_int err;
+
+    if (g_context || g_program) return 0;
+
+    if (pick_first_device(CL_DEVICE_TYPE_GPU, &g_platform, &g_device) != 0) return -1;
+
+    g_context = clCreateContext(NULL, 1, &g_device, NULL, NULL, &err);
+    check_error(err, "clCreateContext");
+
+    const cl_queue_properties props[] = { 0 };
+    g_queue = clCreateCommandQueueWithProperties(g_context, g_device, props, &err);
+    check_error(err, "clCreateCommandQueueWithProperties");
+
+    g_program = clCreateProgramWithSource(g_context, 1, &kernel_source, NULL, &err);
+    check_error(err, "clCreateProgramWithSource");
+
+    err = clBuildProgram(g_program, 1, &g_device, build_opts ? build_opts : "", NULL, NULL);
+    if (err != CL_SUCCESS) {
+        print_build_log(g_program, g_device, "from_source");
+        check_error(err, "clBuildProgram(from_source)");
+    }
+
+    g_kernel_count = 0;
+    memset(g_kernels, 0, sizeof(g_kernels));
+    memset(g_kernel_names, 0, sizeof(g_kernel_names));
+
+    // 註冊自身（可選）
+    retryix_register_self();
+    return 0;
+}
+
+EXPORT int retryix_init_from_file(const char* kernel_path,
+                                  const char* build_opts /* can be NULL */) {
+    long sz = 0;
+    char* src = read_text_file(kernel_path, &sz);
+    if (!src) {
+        perror("[RetryIX Host] fopen kernel_path");
+        return -1;
+    }
+    int rc = retryix_init_from_source(src, build_opts);
+    free(src);
+    return rc;
+}
+
+EXPORT cl_kernel retryix_create_kernel(const char* kernel_name) {
+    if (!g_program) { fprintf(stderr, "Program not built.\n"); return NULL; }
+    if (g_kernel_count >= MAX_KERNELS) { fprintf(stderr, "Kernel cache full.\n"); return NULL; }
+
+    cl_int err;
+    cl_kernel k = clCreateKernel(g_program, kernel_name, &err);
+    if (err != CL_SUCCESS || !k) {
+        print_build_log(g_program, g_device, "create_kernel_failed");
+        fprintf(stderr, "clCreateKernel('%s') failed: %d\n", kernel_name, (int)err);
+        return NULL;
+    }
+    g_kernels[g_kernel_count] = k;
+    strncpy(g_kernel_names[g_kernel_count], kernel_name, sizeof(g_kernel_names[0])-1);
+    g_kernel_count++;
+    return k;
+}
+
+static cl_kernel ensure_test_kernel(void) {
+    for (int i=0;i<g_kernel_count;i++){
+        if (strcmp(g_kernel_names[i], "test")==0) return g_kernels[i];
+    }
+    return retryix_create_kernel("test");
+}
+
+EXPORT int retryix_execute_kernel(float* host_data, size_t count) {
+    if (!g_context || !g_queue) return -3;
+
+    cl_int err;
+    cl_kernel k = ensure_test_kernel();
+    if (!k) return -7;
+
+    cl_mem buffer = clCreateBuffer(g_context,
+                                   CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
+                                   sizeof(float) * count, host_data, &err);
+    if (!buffer || err != CL_SUCCESS) return -10;
+
+    err = clSetKernelArg(k, 0, sizeof(cl_mem), &buffer);
+    if (err != CL_SUCCESS) { clReleaseMemObject(buffer); return -11; }
+
+    size_t global = count;
+    err = clEnqueueNDRangeKernel(g_queue, k, 1, NULL, &global, NULL, 0, NULL, NULL);
+    if (err != CL_SUCCESS) { clReleaseMemObject(buffer); return -12; }
+
+    clFinish(g_queue);
+
+    err = clEnqueueReadBuffer(g_queue, buffer, CL_TRUE, 0,
+                              sizeof(float) * count, host_data, 0, NULL, NULL);
+    if (err != CL_SUCCESS) { clReleaseMemObject(buffer); return -13; }
+
+    clReleaseMemObject(buffer);
+    return 0;
+}
+
+EXPORT int retryix_launch_1d(cl_kernel k, cl_mem arg0, size_t global) {
+    if (!g_queue) return -3;
+    cl_int err = clSetKernelArg(k, 0, sizeof(cl_mem), &arg0);
+    if (err != CL_SUCCESS) return -11;
+    err = clEnqueueNDRangeKernel(g_queue, k, 1, NULL, &global, NULL, 0, NULL, NULL);
+    if (err != CL_SUCCESS) return -12;
+    clFinish(g_queue);
+    return 0;
+}
+
+// ===== Comms glue (封包式對接 host_comm) =====
+EXPORT int retryix_host_receive_command(const char *input,
+                                        char *response,
+                                        size_t response_size) {
+    if (!input || !response || response_size==0) return -1;
+
+    if (strcmp(input, "ping") == 0) {
+        snprintf(response, response_size, "pong");
+    } else if (strcmp(input, "status") == 0) {
+        snprintf(response, response_size, "RetryIX v2.0 Host Ready");
+    } else if (strncmp(input, "eval:", 5) == 0) {
+        float val = 0.0f;
+        (void)sscanf(input + 5, "%f", &val);
+        float data[1] = { val };
+        int ret = retryix_execute_kernel(data, 1);
+        if (ret == 0) snprintf(response, response_size, "result=%.3f", data[0]);
+        else          snprintf(response, response_size, "error=%d", ret);
+    } else if (strcmp(input, "whoami") == 0) {
+        char buf[256];
+        if (retryix_query_module(buf, sizeof(buf)) == 0)
+            snprintf(response, response_size, "%s", buf);
+        else
+            snprintf(response, response_size, "no_module");
     } else {
-        printf("Strategy Selection: Basic Atomic Operations\n");
-        return kernelSource_Basic;
+        snprintf(response, response_size, "unknown command");
     }
+    return 0;
 }
 
-void print_device_capabilities(cl_device_id device, OpenCLDeviceCapabilities caps) {
-    char device_name[256], vendor[256], version[256];
-    cl_device_type device_type;
-    cl_ulong global_mem_size;
-    
-    clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(device_name), device_name, NULL);
-    clGetDeviceInfo(device, CL_DEVICE_VENDOR, sizeof(vendor), vendor, NULL);
-    clGetDeviceInfo(device, CL_DEVICE_VERSION, sizeof(version), version, NULL);
-    clGetDeviceInfo(device, CL_DEVICE_TYPE, sizeof(device_type), &device_type, NULL);
-    clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(global_mem_size), &global_mem_size, NULL);
-    
-    printf("=== Universal Device Info ===\n");
-    printf("Device Name: %s\n", device_name);
-    printf("Vendor: %s\n", vendor);
-    printf("OpenCL Version: %s\n", version);
-    printf("Device Type: %s\n", (device_type == CL_DEVICE_TYPE_GPU) ? "GPU" : 
-                            (device_type == CL_DEVICE_TYPE_CPU) ? "CPU" : "Other");
-    printf("Global Memory: %.2f GB\n", (double)global_mem_size / (1024*1024*1024));
-    
-    printf("\n=== Atomic Operations Support Analysis ===\n");
-    printf("OpenCL Version: %d.%d\n", caps.opencl_version_major, caps.opencl_version_minor);
-    printf("32-bit Atomic Operations: %s\n", caps.supports_atomic_32 ? "✅ Supported" : "❌ Not Supported");
-    printf("64-bit Atomic Operations: %s\n", caps.supports_atomic_64 ? "✅ Supported" : "❌ Not Supported");
-    printf("Extended Atomic Operations: %s\n", caps.supports_extended_atomics ? "✅ Supported" : "❌ Not Supported");
-    printf("OpenCL 2.0 Syntax: %s\n", caps.use_opencl2_atomics ? "✅ Available" : "❌ Not Available");
-    printf("\n");
+// Fixed: in-thread loopback (no queue echo). Replace later with real IPC if needed.
+EXPORT int retryix_send_command(const char* message,
+                                char* response,
+                                size_t response_size) {
+    if (!message || !response || response_size==0) return -1;
+
+    char resp[1024] = {0};
+    int rc = retryix_host_receive_command(message, resp, sizeof(resp));
+    if (rc != 0) return rc;
+
+    snprintf(response, response_size, "%s", resp);
+    return 0;
 }
 
-int test_kernel_compilation(cl_context context, cl_device_id device, const char* source, const char* build_options) {
-    cl_int err;
-    cl_program program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
-    if (err != CL_SUCCESS) return 0;
-    
-    err = clBuildProgram(program, 1, &device, build_options, NULL, NULL);
-    
-    if (err != CL_SUCCESS) {
-        size_t log_size;
-        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
-        if (log_size > 1) {
-            char *build_log = (char*)malloc(log_size);
-            clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, build_log, NULL);
-            printf("Compilation failed log:\n%s\n", build_log);
-            free(build_log);
-        }
+EXPORT int retryix_shutdown(void) {
+    for (int i = 0; i < MAX_KERNELS; ++i) {
+        if (g_kernels[i]) { clReleaseKernel(g_kernels[i]); g_kernels[i]=NULL; }
     }
-    
-    clReleaseProgram(program);
-    return (err == CL_SUCCESS);
-}
-
-int run_universal_atomic_test(cl_context context, cl_command_queue queue, cl_device_id device) {
-    OpenCLDeviceCapabilities caps = analyze_device_capabilities(device);
-    print_device_capabilities(device, caps);
-    
-    // 嘗試不同的內核實現
-    const char* kernels_to_try[] = {
-        kernelSource_OpenCL2,
-        kernelSource_OpenCL1_WithExtensions, 
-        kernelSource_Basic,
-        kernelSource_Fallback
-    };
-    
-    const char* build_options[] = {
-        "-cl-std=CL2.0",
-        "-cl-std=CL1.2", 
-        "-cl-std=CL1.1",
-        "-cl-std=CL1.0"
-    };
-    
-    const char* strategy_names[] = {
-        "OpenCL 2.0 Standard Atomic Operations",
-        "OpenCL 1.x + Atomic Extensions",
-        "Basic Atomic Operation Functions",
-        "Fallback Solution (Local Memory)"
-    };
-    
-    cl_program working_program = NULL;
-    int working_strategy = -1;
-    
-    // 逐一測試直到找到可用的實現
-    for (int i = 0; i < 4; i++) {
-        printf("Testing Strategy %d: %s\n", i + 1, strategy_names[i]);
-        
-        if (test_kernel_compilation(context, device, kernels_to_try[i], build_options[i])) {
-            cl_int err;
-            working_program = clCreateProgramWithSource(context, 1, &kernels_to_try[i], NULL, &err);
-            if (err == CL_SUCCESS) {
-                err = clBuildProgram(working_program, 1, &device, build_options[i], NULL, NULL);
-                if (err == CL_SUCCESS) {
-                    working_strategy = i;
-                    printf("✅ Strategy %d compiled successfully!\n\n", i + 1);
-                    break;
-                }
-            }
-            if (working_program) {
-                clReleaseProgram(working_program);
-                working_program = NULL;
-            }
-        }
-        printf("❌ Strategy %d failed, trying next...\n", i + 1);
-    }
-    
-    if (!working_program) {
-        printf("All strategies failed, this device may not support atomic operations\n");
-        return 0;
-    }
-    
-    printf("=== Using Strategy %d for Testing ===\n", working_strategy + 1);
-    
-    // 執行實際測試
-    cl_int err;
-    cl_kernel kernel = clCreateKernel(working_program, "atomic_add_kernel", &err);
-    if (err != CL_SUCCESS) {
-        printf("Cannot create kernel\n");
-        clReleaseProgram(working_program);
-        return 0;
-    }
-    
-    // 創建測試緩衝區
-    int counter_init = 0;
-    cl_mem counter_buf = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-                                        sizeof(cl_int), &counter_init, &err);
-    if (err != CL_SUCCESS) {
-        printf("Cannot create buffer\n");
-        clReleaseKernel(kernel);
-        clReleaseProgram(working_program);
-        return 0;
-    }
-    
-    // 設定內核參數
-    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), &counter_buf);
-    if (err != CL_SUCCESS) {
-        printf("Cannot set kernel arguments\n");
-        goto cleanup;
-    }
-    
-    // 執行測試
-    size_t global_size = 1024;
-    err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        printf("Kernel execution failed\n");
-        goto cleanup;
-    }
-    
-    clFinish(queue);
-    
-    // 讀取結果
-    int result = 0;
-    err = clEnqueueReadBuffer(queue, counter_buf, CL_TRUE, 0, sizeof(cl_int), &result, 0, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        printf("Failed to read results\n");
-        goto cleanup;
-    }
-    
-    printf("Test Result: %d (Expected: %zu)\n", result, global_size);
-    printf("Universal Atomic Operations Test: %s\n", (result > 0) ? "✅ SUCCESS" : "❌ FAILED");
-    
-cleanup:
-    clReleaseMemObject(counter_buf);
-    clReleaseKernel(kernel);
-    clReleaseProgram(working_program);
-    return 1;
-}
-
-int main() {
-    setup_unicode();
-    
-    cl_int err;
-    cl_uint num_platforms;
-    
-    printf("🌍 Universal OpenCL Atomic Operations Compatibility Test\n\n");
-    
-    // 枚舉所有平台
-    err = clGetPlatformIDs(0, NULL, &num_platforms);
-    CHECK_CL_ERROR(err, "Cannot query platform count");
-    
-    if (num_platforms == 0) {
-        printf("No OpenCL platforms found\n");
-        return 1;
-    }
-    
-    cl_platform_id *platforms = (cl_platform_id*)malloc(num_platforms * sizeof(cl_platform_id));
-    err = clGetPlatformIDs(num_platforms, platforms, NULL);
-    CHECK_CL_ERROR(err, "Cannot get platform list");
-    
-    printf("Found %u OpenCL platform(s)\n\n", num_platforms);
-    
-    // 測試每個平台的每個設備
-    for (cl_uint p = 0; p < num_platforms; p++) {
-        char platform_name[256], platform_vendor[256];
-        clGetPlatformInfo(platforms[p], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, NULL);
-        clGetPlatformInfo(platforms[p], CL_PLATFORM_VENDOR, sizeof(platform_vendor), platform_vendor, NULL);
-        
-        printf("=== Platform %u: %s (%s) ===\n", p + 1, platform_name, platform_vendor);
-        
-        // 獲取該平台的所有設備
-        cl_uint num_devices;
-        err = clGetDeviceIDs(platforms[p], CL_DEVICE_TYPE_ALL, 0, NULL, &num_devices);
-        if (err != CL_SUCCESS || num_devices == 0) {
-            printf("No devices available on this platform\n\n");
-            continue;
-        }
-        
-        cl_device_id *devices = (cl_device_id*)malloc(num_devices * sizeof(cl_device_id));
-        err = clGetDeviceIDs(platforms[p], CL_DEVICE_TYPE_ALL, num_devices, devices, NULL);
-        CHECK_CL_ERROR(err, "Cannot get device list");
-        
-        // 測試每個設備
-        for (cl_uint d = 0; d < num_devices; d++) {
-            printf("--- Device %u ---\n", d + 1);
-            
-            cl_context context = clCreateContext(NULL, 1, &devices[d], NULL, NULL, &err);
-            if (err != CL_SUCCESS) {
-                printf("Cannot create context\n");
-                continue;
-            }
-            
-            // 使用新的 command queue 創建方式（避免 deprecated 警告）
-            cl_queue_properties properties[] = {0};
-            cl_command_queue queue = clCreateCommandQueueWithProperties(context, devices[d], properties, &err);
-            if (err != CL_SUCCESS) {
-                printf("Cannot create command queue\n");
-                clReleaseContext(context);
-                continue;
-            }
-            
-            run_universal_atomic_test(context, queue, devices[d]);
-            
-            clReleaseCommandQueue(queue);
-            clReleaseContext(context);
-            printf("\n");
-        }
-        
-        free(devices);
-        printf("\n");
-    }
-    
-    free(platforms);
-    printf("🎉 All platforms and devices tested!\n");
+    g_kernel_count = 0;
+    if (g_program) { clReleaseProgram(g_program); g_program=NULL; }
+    if (g_queue)   { clReleaseCommandQueue(g_queue); g_queue=NULL; }
+    if (g_context) { clReleaseContext(g_context); g_context=NULL; }
+    g_device = NULL; g_platform = NULL;
+    memset(g_kernel_names, 0, sizeof(g_kernel_names));
     return 0;
 }

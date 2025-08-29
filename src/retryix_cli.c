@@ -1,9 +1,9 @@
-// main.c - 簡易互動 CLI：ping / status / whoami / eval:<f> / quit
+// retryix_cli.c
+// 簡易互動 CLI：用來測試 retryix_host + host_comm + module_descriptor
 // 用法：
-//   ./retryix_host_demo               # 使用內建 fallback "test" kernel
-//   ./retryix_host_demo your_kernel.cl  # 用外部 kernel 檔案
+//   ./retryix_cli               # 使用內建 fallback kernel
+//   ./retryix_cli my_kernel.cl  # 用外部 kernel 檔案
 
-#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -11,12 +11,13 @@
 #include "host_comm.h"
 #include "module_descriptor.h"
 
-// 由 retryix_host.c 導出
+// 從 retryix_host.c 導出的 API
 int  retryix_init_minimal(void);
 int  retryix_init_from_file(const char* kernel_path, const char* build_opts);
 int  retryix_shutdown(void);
 int  retryix_send_command(const char* message, char* response, size_t response_size);
 
+// 小工具：送指令並列印回應
 static void demo_exchange(const char* cmd) {
     char resp[1024] = {0};
     int r = retryix_send_command(cmd, resp, sizeof(resp));
@@ -28,13 +29,13 @@ static void demo_exchange(const char* cmd) {
 }
 
 int main(int argc, char** argv) {
-    // 1) 通訊初始化（本版為單程序 queue，未開網路/未曝光 IP）
+    // 初始化通訊
     if (comm_init("RetryIXChannel") != COMM_SUCCESS) {
         fprintf(stderr, "comm_init failed\n");
         return 1;
     }
 
-    // 2) Host 初始化（讀外部 kernel 或用內建）
+    // 初始化 Host
     int rc = 0;
     if (argc > 1) {
         rc = retryix_init_from_file(argv[1], "-cl-std=CL1.2");
@@ -46,14 +47,14 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    // 3) 快速測試：ping/status/whoami/eval
+    // 先跑幾個內建測試
     demo_exchange("ping");
     demo_exchange("status");
     demo_exchange("whoami");
     demo_exchange("eval:1.0");
 
-    // 4) 互動 CLI
-    printf("\n[RetryIX CLI] 輸入指令（ping / status / whoami / eval:<f> / quit）\n");
+    // 進入互動 CLI
+    printf("\n[RetryIX CLI] Commands: ping | status | whoami | eval:<f> | quit\n");
     char line[512];
     while (1) {
         printf("> ");
@@ -65,7 +66,6 @@ int main(int argc, char** argv) {
         demo_exchange(line);
     }
 
-    // 5) 清理
     retryix_shutdown();
     comm_cleanup();
     return 0;
