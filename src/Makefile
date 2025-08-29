@@ -47,7 +47,7 @@ DLL_SRCS = retryix_kernel.c retryix_device_utils.c retryix_exports.c retryix_mem
 
 .PHONY: all clean list-sources help
 
-all: $(TARGET) retryix_cli.exe
+all: $(TARGET) retryix_cli.exe $(RETRYIX_DLL)
 # CLI 執行檔目標
 retryix_cli.exe: retryix_cli.o $(STATICLIB)
 	$(CC) -o $@ retryix_cli.o $(STATICLIB) $(LDFLAGS)
